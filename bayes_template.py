@@ -7,38 +7,57 @@ class Bayes_Classifier:
       cache of a trained classifier has been stored, it loads this cache.  Otherwise, 
       the system will proceed through training.  After running this method, the classifier 
       is ready to classify input text.'''
-      self.h_good = {}
-      self.h_bad = {}
-      if os.path.exists('./db_good') == False or os.path.exists('./db_bad') == False:
+      self.h_good = {}  #initialize the dictionary to store good reviews
+      self.h_bad = {}    #dictionary that stores bad reviews
+      self.num_good = 0 # store the number of good reviews
+      self.num_bad = 0  # store the number of bad reviews
+      if os.path.exists('./db_good') == False or os.path.exists('./db_bad') == False: # check to see if database files exist
          self.train(trainDirectory)
       else: 
-         self.h_good = self.load('db_good')
+         self.h_good = self.load('db_good')  # load the data base files if they exist
          self.h_bad = self.load('db_bad')
-         print(self.h_good)
+         '''
+         we must loop through files to get the count of negative and positve reviews
+         '''
+         for file in os.listdir(trainDirectory):
+            filename = os.fsdecode(file)
+            rating = filename.split('-')[1] # extract the rating from the filename
+            if rating == '1':   # increment appropriate counter
+               self.num_bad += 1
+            elif rating == '5':
+               self.num_good += 1
+
+      # sum all keys in dictionary is the total frequencies         
+      self.total_good_freq = sum(self.h_good.values())  
+      self.total_bad_freq = sum(self.h_bad.values())
+
 
    def train(self, trainDirectory):   
       '''Trains the Naive Bayes Sentiment Classifier.'''
-      for file in os.listdir(trainDirectory):
+      
+      for file in os.listdir(trainDirectory): # loop through files in training directory
          filename = os.fsdecode(file)
-         rating = filename.split('-')[1]
-         print(rating)
-         print((os.path.join(trainDirectory, filename)))
-         f = self.loadFile(os.path.join(trainDirectory, filename))
+         rating = filename.split('-')[1]  # extract the rating from the file name
+         f = self.loadFile(os.path.join(trainDirectory, filename)) # load the file
          s = self.tokenize(f)
-         if rating == '5':
+         if rating == '5': 
+            self.num_good += 1 # keep track of number of good ratings
             for word in s:
-               word = word.lower()
+               word = word.lower()  # convert to lower case for consistancy 
                if word in self.h_good:
-                  self.h_good[word] += 1
+                  self.h_good[word] += 1  # increment counter if word is in dict
                else:
-                  self.h_good[word] = 1
+                  self.h_good[word] = 1  # if word not in dict, add to dict
          elif rating == '1':
+            self.num_bad += 1  # keep track of number of bad ratings
             for word in s:
-               word = word.lower()
+               word = word.lower()  
                if word in self.h_bad:
-                  self.h_bad[word] += 1
+                  self.h_bad[word] += 1  # increment counter if word is in dict
                else:
-                  self.h_bad[word] = 1
+                  self.h_bad[word] = 1 # if word not in dict, add to dict
+
+      # save off results in files
       self.save(self.h_good, './db_good')
       self.save(self.h_bad, './db_bad')
             
@@ -47,6 +66,44 @@ class Bayes_Classifier:
       class to which the target string belongs. This function should return one of three
       strings: "positive", "negative" or "neutral".
       '''
+      s = self.tokenize(sText) # create a list of the words in the string
+
+      # calculate the a priori probability of the two classes.  We take the log in order 
+      # to avoid the underflow problem.
+      prob_bad = math.log(self.num_bad / (self.num_bad + self.num_good))
+      prob_good = math.log(self.num_good / (self.num_bad + self.num_good))
+
+      for word in s: # loop through all words
+         word = word.lower()  # convert to lower case for consistancy.  
+         prob = self.word_prob(word, 5)  # find probability of it being in good review
+         prob_good += math.log(prob) # update the probability
+         prob = self.word_prob(word, 1)  # find probability of it being in bad review
+         prob_bad += math.log(prob) # update the probability 
+      
+      # return string based on which probablity is higher
+      if prob_bad > prob_good:
+         return "negative"
+      elif prob_good > prob_bad:
+         return "positive"
+   
+   '''
+   This function will find the probablity of a word occuring given whether it is 
+   from a good review or bad review
+   '''
+   def word_prob(self, word, word_class):
+      if word_class == 5:  # if it is a good review
+         if word in self.h_good:
+            word_freq = self.h_good[word] # find frequency of word
+         else:
+            word_freq = 0  # word has 0 frequency
+         return (word_freq + 1) / (self.total_good_freq + 1) # add one for smoothing and find probability
+      elif word_class == 1:
+         if word in self.h_bad:
+            word_freq = self.h_bad[word]
+         else:
+            word_freq = 0
+         return (word_freq + 1) / (self.total_bad_freq + 1)
+
 
    def loadFile(self, sFilename):
       '''Given a file name, return the contents of the file as a string.'''
@@ -93,5 +150,41 @@ class Bayes_Classifier:
 
       return lTokens
 
+'''
+This function will create an instance of the classifier and given a path to 
+test files, will perform classification on the files in that directory.  
+It will return the percent of files that were correctly classified.
+'''
+def test_classifier(path):
+   classifier = Bayes_Classifier()
+   files_list = []
+   for f in os.walk(path):
+      files_list = f[2] # add all files into the list of files
+      break
+   count = 0  # initialize counter for number of files in directory
+   correct = 0 # initialize counter for number of correctly predicted files
+   for f in files_list:
+      count += 1
+      truth = f.split('-')[1] # capture the ground truth
+      path_to_file = os.path.join(path, f)
+      s = classifier.loadFile(path_to_file) # load file contents as string
+      predict = classifier.classify(s)  # classify that string
+
+      # check whether the predicted value is same as ground truth
+      if predict == 'positive':
+         predict = '5'
+      elif predict == 'negative':
+         predict = '1'
+      if predict == truth:
+         correct += 1 # if correctly predicted, increment correct counter
+   return correct / count # return percent correctly predicted
+      
+
+
+
 if __name__ == '__main__':
    bayes = Bayes_Classifier()
+   print(bayes.classify('My AI class is not boring'))
+   #print(test_classifier('./movies_reviews/test/'))
+
+
