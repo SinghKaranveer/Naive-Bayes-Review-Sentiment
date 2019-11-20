@@ -81,6 +81,8 @@ class Bayes_Classifier:
          prob_bad += math.log(prob) # update the probability 
       
       # return string based on which probablity is higher
+      if (abs(prob_good - prob_bad)) < (abs(prob_good * 0.005)):
+         return "neutral"
       if prob_bad > prob_good:
          return "negative"
       elif prob_good > prob_bad:
@@ -156,6 +158,9 @@ test files, will perform classification on the files in that directory.
 It will return the percent of files that were correctly classified.
 '''
 def test_classifier(path):
+   true_positives = 0
+   false_positive = 0
+   false_negative = 0
    classifier = Bayes_Classifier()
    files_list = []
    for f in os.walk(path):
@@ -177,14 +182,29 @@ def test_classifier(path):
          predict = '1'
       if predict == truth:
          correct += 1 # if correctly predicted, increment correct counter
+         if predict == '5':
+            true_positives += 1
+      else:
+         if predict == '5' and truth == '1':
+            false_positive += 1
+         elif predict == '1' and truth == '5':
+            false_negative += 1
+   recall = (true_positives) / (true_positives + false_negative)
+   precision = (true_positives) / (true_positives + false_positive)
+   f_measure = (2*precision*recall) / (precision + recall)
+   print("Precision = " + str(precision))
+   print("Recall = " + str(recall))
+   print("F-Measure = " + str(f_measure))
+   print("Accuracy = " + str(correct / count))
+
+
    return correct / count # return percent correctly predicted
-      
 
 
 
 if __name__ == '__main__':
    bayes = Bayes_Classifier()
-   print(bayes.classify('My AI class is not boring'))
-   #print(test_classifier('./movies_reviews/test/'))
+   #print(bayes.classify('Definitely one of the best childrens movies ever made. A strong female character that uses logic, wits, and courage to overcome adversity and make true friends.'))
+   print(test_classifier('./movies_reviews/test/'))
 
 

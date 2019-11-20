@@ -9,15 +9,15 @@ class Bayes_Classifier:
       is ready to classify input text.'''
       self.h_good = {}  #initialize the dictionary to store good reviews
       self.h_bad = {}    #dictionary that stores bad reviews
-      self.bigram_dict_good = {}
-      self.bigram_dict_bad = {}
+      #self.bigram_dict_good = {}
+      #self.bigram_dict_bad = {}
       self.num_good = 0 # store the number of good reviews
       self.num_bad = 0  # store the number of bad reviews
-      if os.path.exists('./db_good') == False or os.path.exists('./db_bad') == False: # check to see if database files exist
+      if os.path.exists('./db_good_best') == False or os.path.exists('./db_bad_best') == False: # check to see if database files exist
          self.train(trainDirectory)
       else: 
-         self.h_good = self.load('db_good')  # load the data base files if they exist
-         self.h_bad = self.load('db_bad')
+         self.h_good = self.load('db_good_best')  # load the data base files if they exist
+         self.h_bad = self.load('db_bad_best')
          '''
          we must loop through files to get the count of negative and positve reviews
          '''
@@ -28,31 +28,11 @@ class Bayes_Classifier:
                self.num_bad += 1
             elif rating == '5':
                self.num_good += 1
-      if not os.path.exists('./db_bigram_bad') or not os.path.exists('./db_bigram_good'):
-         self.generate_bigram_table(trainDirectory)
-      else:
-         self.bigram_dict_good = self.load('db_bigram_good')  # load the data base files if they exist
-         self.bigram_dict_bad = self.load('db_bigram_bad')
 
       # sum all keys in dictionary is the total frequencies         
-      self.total_good_freq = sum(self.h_good.values())  
-      self.total_bad_freq = sum(self.h_bad.values())
+      self.total_good_freq = sum(self.h_good.values())# + sum(self.bigram_dict_good.values())
+      self.total_bad_freq = sum(self.h_bad.values())# + sum(self.bigram_dict_bad.values())
 
-   def generate_bigram_table(self, directory):
-      for file in os.listdir(directory):
-         filename = os.fsdecode(file)
-         rating = filename.split('-')[1]  # extract the rating from the file name
-         f = self.loadFile(os.path.join(directory, filename))
-         s = self.tokenize(f)
-         bigrams = self.generate_bigrams(s)
-         for item in bigrams:
-            item = (item[0].lower(), item[1].lower())
-            if rating == '5':
-               self.add_to_dict(item, self.bigram_dict_good)
-            elif rating == '1':
-               self.add_to_dict(item, self.bigram_dict_bad)
-      self.save(self.bigram_dict_bad, './db_bigram_bad')
-      self.save(self.bigram_dict_good, './db_bigram_good')
 
    def add_to_dict(self, item, h):
       if item in h:
@@ -74,20 +54,28 @@ class Bayes_Classifier:
 
    def train(self, trainDirectory):   
       '''Trains the Naive Bayes Sentiment Classifier.'''
-      
+      ignore_words = ['the', 'a']
       for file in os.listdir(trainDirectory): # loop through files in training directory
          filename = os.fsdecode(file)
          rating = filename.split('-')[1]  # extract the rating from the file name
-         f = self.loadFile(os.path.join(trainDirectory, filename)) # load the file
-         s = self.tokenize(f)
+         s = self.loadFile(os.path.join(trainDirectory, filename)) # load the file
+         s = "".join(c for c in s if c not in ('.',':','-',',',';'))
+         s = self.tokenize(s)
+         bigrams = self.generate_bigrams(s)
          if rating == '5': 
             self.num_good += 1 # keep track of number of good ratings
-            for word in s:
+            for word in s:   
                word = word.lower()  # convert to lower case for consistancy 
                if word in self.h_good:
                   self.h_good[word] += 1  # increment counter if word is in dict
                else:
                   self.h_good[word] = 1  # if word not in dict, add to dict
+            for bi in bigrams:
+               word = bi[0].lower(), bi[1].lower()
+               if word in self.h_good:
+                  self.h_good[word] += 1
+               else:
+                  self.h_good[word] = 1
          elif rating == '1':
             self.num_bad += 1  # keep track of number of bad ratings
             for word in s:
@@ -96,95 +84,77 @@ class Bayes_Classifier:
                   self.h_bad[word] += 1  # increment counter if word is in dict
                else:
                   self.h_bad[word] = 1 # if word not in dict, add to dict
+            for bi in bigrams:
+               word = bi[0].lower(), bi[1].lower()
+               if bi in self.h_bad:
+                  self.h_bad[word] += 1
+               else:
+                  self.h_bad[word] = 1
 
-      # save off results in files
-      self.save(self.h_good, './db_good')
-      self.save(self.h_bad, './db_bad')
+      self.save(self.h_good, './db_good_best')
+      self.save(self.h_bad, './db_bad_best')
 
    def classify(self, sText):
       '''Given a target string sText, this function returns the most likely document
       class to which the target string belongs. This function should return one of three
       strings: "positive", "negative" or "neutral".
       '''
-      uni_good, uni_bad = self.unigram_probability(sText)
-      bi_good, bi_bad = self.bigram_probability(sText)
-      total_good = uni_good + bi_good
-      total_bad = uni_bad + bi_bad
+      total_bad = math.log(len(self.h_bad) / (len(self.h_bad) + len(self.h_good)))
+      total_good = math.log(len(self.h_good) / (len(self.h_bad) + len(self.h_good)))
+      ignore_words = ['the', 'a',]
+      sText = "".join(c for c in sText if c not in ('.',':','-'))
+
+      words = self.tokenize(sText)
+      for word in words:
+         if word in ignore_words:
+            continue
+         word = word.lower()
+         p_good, p_bad = self.word_prob(word)
+         total_good += p_good
+         total_bad += p_bad
+      bigrams = self.generate_bigrams(words)
+      for word in bigrams:
+         word = (word[0].lower(), word[1].lower())
+         p_good, p_bad = self.word_prob(word)
+         total_good += p_good
+         total_bad += p_bad
+      if (abs(total_good - total_bad)) < (abs(total_good * 0.001)):
+         return "neutral"
       if total_good > total_bad:
          return 'positive'
       else:
          return 'negative'
 
-   def bigram_probability(self, sText):
-      s = self.tokenize(sText) # create a list of the words in the string
-      
-      # calculate the a priori probability of the two classes.  We take the log in order 
-      # to avoid the underflow problem.
-      prob_bad = math.log(self.num_bad / (self.num_bad + self.num_good))
-      prob_good = math.log(self.num_good / (self.num_bad + self.num_good))
 
-      bigrams = self.generate_bigrams(s)
-      for bi in bigrams:
-         bi = (bi[0].lower(), bi[1].lower())
-         prob = self.bi_prob(bi, 5)
-         prob_good += math.log(prob)
-         prob = self.bi_prob(bi, 1)
-         prob_bad += math.log(prob)
-      return prob_good, prob_bad
-
-   
-
-
-   def unigram_probability(self, sText):
-      s = self.tokenize(sText) # create a list of the words in the string
-
-      # calculate the a priori probability of the two classes.  We take the log in order 
-      # to avoid the underflow problem.
-      prob_bad = math.log(self.num_bad / (self.num_bad + self.num_good))
-      prob_good = math.log(self.num_good / (self.num_bad + self.num_good))
-
-      for word in s: # loop through all words
-         word = word.lower()  # convert to lower case for consistancy.  
-         prob = self.word_prob(word, 5)  # find probability of it being in good review
-         prob_good += math.log(prob) # update the probability
-         prob = self.word_prob(word, 1)  # find probability of it being in bad review
-         prob_bad += math.log(prob) # update the probability 
-      
-      # return both probabilities
-      return prob_good, prob_bad
    
    '''
    This function will find the probablity of a word occuring given whether it is 
    from a good review or bad review
    '''
-   def word_prob(self, word, word_class):
-      if word_class == 5:  # if it is a good review
-         if word in self.h_good:
-            word_freq = self.h_good[word] # find frequency of word
-         else:
-            word_freq = 0  # word has 0 frequency
-         return (word_freq + 1) / (self.total_good_freq + 1) # add one for smoothing and find probability
-      elif word_class == 1:
-         if word in self.h_bad:
-            word_freq = self.h_bad[word]
-         else:
-            word_freq = 0
-         return (word_freq + 1) / (self.total_bad_freq + 1)
+   def word_prob(self, word):
 
-   def bi_prob(self, word, word_class):
-      if word_class == 5:  # if it is a good review
-         if word in self.bigram_dict_good:
-            word_freq = self.bigram_dict_good[word] # find frequency of bigram
-         else:
-            word_freq = 0  # word has 0 frequency
-         return (word_freq + 1) / (sum(self.bigram_dict_good.values()) + 1) # add one for smoothing and find probability
-      elif word_class == 1:
-         if word in self.bigram_dict_bad:
-            word_freq = self.bigram_dict_bad[word]
-         else:
-            word_freq = 0
-         return (word_freq + 1) / (sum(self.bigram_dict_bad.values()) + 1) # add one for smoothing and find probability
-
+      #if the word is not in either dictionary, ignore it
+      good_words = ['love', ('love', 'it'), 'awesome', 'great', ('very', 'good'), 'amazing']
+      bad_words = ["hate", ("hate", "it"), "awful", "shit"]
+      good_multiplier = 1
+      bad_multiplier = 1
+      if word not in self.h_bad and word not in self.h_good:
+         return 0, 0
+      if word in good_words:
+         good_multiplier = 2
+      if word in bad_words:
+         bad_multiplier = 2
+      if word in self.h_good:
+            good_freq = self.h_good[word] * good_multiplier # find frequency of word
+      else:
+         good_freq = 0  # word has 0 frequency
+      if word in self.h_bad:
+         bad_freq = self.h_bad[word] * bad_multiplier
+      else:
+         bad_freq = 0
+      p_good = math.log((good_freq + 1) / (self.total_good_freq))
+      p_bad = math.log((bad_freq + 1) / (self.total_bad_freq)) 
+      return p_good, p_bad
 
    def loadFile(self, sFilename):
       '''Given a file name, return the contents of the file as a string.'''
@@ -237,15 +207,18 @@ test files, will perform classification on the files in that directory.
 It will return the percent of files that were correctly classified.
 '''
 def test_classifier(path):
+   true_positives = 0
+   false_positive = 0
+   false_negative = 0
    classifier = Bayes_Classifier()
    files_list = []
    for f in os.walk(path):
       files_list = f[2] # add all files into the list of files
       break
-   count = 0  # initialize counter for number of files in directory
+   incorrect_list = []
+   count = len(files_list)
    correct = 0 # initialize counter for number of correctly predicted files
    for f in files_list:
-      count += 1
       truth = f.split('-')[1] # capture the ground truth
       path_to_file = os.path.join(path, f)
       s = classifier.loadFile(path_to_file) # load file contents as string
@@ -258,6 +231,22 @@ def test_classifier(path):
          predict = '1'
       if predict == truth:
          correct += 1 # if correctly predicted, increment correct counter
+         if predict == '5':
+            true_positives += 1
+      else:
+         if predict == '5' and truth == '1':
+            false_positive += 1
+         elif predict == '1' and truth == '5':
+            false_negative += 1
+
+   recall = (true_positives) / (true_positives + false_negative)
+   precision = (true_positives) / (true_positives + false_positive)
+   f_measure = (2*precision*recall) / (precision + recall)
+   print("Precision = " + str(precision))
+   print("Recall = " + str(recall))
+   print("F-Measure = " + str(f_measure))
+   print("Accuracy = " + str(correct / count))
+
    return correct / count # return percent correctly predicted
       
 
@@ -265,5 +254,6 @@ def test_classifier(path):
 
 if __name__ == '__main__':
    bayes = Bayes_Classifier()
-   print(bayes.classify("My AI class is not boring"))
+   #print(bayes.classify("My AI class is not boring"))
+   print(test_classifier('./movies_reviews/test/'))
 
