@@ -1,4 +1,4 @@
-:qtestFile = "bayes.py"
+testFile = "bayes.py"
 trainDir = "training/"
 testDir = "testing/"
 
